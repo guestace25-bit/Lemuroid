@@ -15,6 +15,8 @@ import com.swordfish.lemuroid.app.shared.settings.HDModeQuality
 import com.swordfish.lemuroid.common.coroutines.MutableStateProperty
 import com.swordfish.lemuroid.common.coroutines.launchOnState
 import com.swordfish.lemuroid.common.view.disableTouchEvents
+import com.swordfish.lemuroid.corruptor.CorruptorBridge
+import com.swordfish.lemuroid.corruptor.RomCorruptor
 import com.swordfish.lemuroid.lib.core.CoreVariable
 import com.swordfish.lemuroid.lib.core.CoreVariablesManager
 import com.swordfish.lemuroid.lib.game.GameLoader
@@ -27,6 +29,7 @@ import com.swordfish.lemuroid.lib.storage.RomFiles
 import com.swordfish.libretrodroid.GLRetroView
 import com.swordfish.libretrodroid.GLRetroViewData
 import com.swordfish.libretrodroid.ImmersiveMode
+import com.swordfish.libretrodroid.LibretroDroid
 import com.swordfish.libretrodroid.Variable
 import com.swordfish.libretrodroid.ViewportAlignment
 import com.swordfish.libretrodroid.VirtualFile
@@ -185,6 +188,21 @@ class GameViewModelRetroGameView(
         retroGameViewFlow.value = result
         gameState.value = GameState.Ready
 
+        // ---- ROM Corruptor: register the in-memory reload handler ----
+        runCatching {
+            CorruptorBridge.register { bytes ->
+                try {
+                    LibretroDroid.pause()
+                    LibretroDroid.loadGameFromBytes(bytes)
+                    LibretroDroid.reset()
+                    LibretroDroid.resume()
+                } catch (t: Throwable) {
+                    Timber.e(t, "Corruptor reload failed")
+                }
+            }
+        }
+        // ---- end ----
+
         return currentState.gameData to result
     }
 
@@ -222,7 +240,13 @@ class GameViewModelRetroGameView(
 
             when (val gameFiles = gameData.gameFiles) {
                 is RomFiles.Standard -> {
-                    gameFilePath = gameFiles.files.first().absolutePath
+                    val romPath = gameFiles.files.first().absolutePath
+                    gameFilePath = romPath
+                    // ---- ROM Corruptor: capture the pristine ROM bytes ----
+                    runCatching {
+                        RomCorruptor.setSource(java.io.File(romPath).readBytes())
+                    }
+                    // ---- end ----
                 }
 
                 is RomFiles.Virtual -> {
